@@ -1,0 +1,501 @@
+x---
+title: "Predicting the Lending Club Loan amount interest rate using the best model estimate"
+author: "Mohini Agarwal, Shane Kok, Edward Eustachon, Hannah Ho, Katherine Zingerman"
+date: "8/13/2019"
+output: html_document
+---
+################################################################################# 
+############## Predicting loan interest rate for Lending Club ###################
+################################################################################# 
+
+# adjust the data
+```{r}
+rm(list=ls())
+loans = read.csv("loans.csv")
+loans$ï..int_rate = log(loans$ï..int_rate)
+colnames(loans)[colnames(loans)=='ï..int_rate'] = 'int_rate'
+term = as.factor(loans$term)
+loans$term = NULL
+loans = cbind(loans, term)
+```
+
+# resample our dataset
+```{r}
+set.seed(268)
+nsample=5000 # because nrow = 421095, we take a sample of 5000 for computational time
+train.index=3750
+test.index=1250
+ii = sample(1:nrow(loans), nsample)
+loans.train = loans[ii[1:train.index],]
+loans.test = loans[ii[train.index+1:test.index],]
+```
+
+################################################################################# 
+# first result: simple linear regression
+################################################################################# 
+
+# Regressing on fico average
+```{r}
+par(mfrow=c(1,1))
+loans.lm.fico = lm(loans.train$int_rate~loans.train$fico_average, data = loans.train)
+summary(loans.lm.fico)
+plot(loans.train$fico_average, loans.train$int_rate)
+abline(loans.lm.fico, lwd=5)
+par(mfrow=c(2,2))
+plot(loans.lm.fico)
+sqrt(mean((loans.test$int_rate - predict(loans.lm.fico, loans.test))^2))
+```
+
+# Regressing on annual income
+```{r}
+par(mfrow=c(1,1))
+loans.lm.inc = lm(loans.train$int_rate~loans.train$annual_inc, data = loans.train)
+summary(loans.lm.inc)
+plot(loans.train$annual_inc, loans.train$int_rate)
+abline(loans.lm.inc, lwd=5)
+par(mfrow=c(2,2))
+plot(loans.lm.inc)
+sqrt(mean((loans.test$int_rate - predict(loans.lm.inc, loans.test))^2))
+```
+
+# Regressing on loan amount
+```{r}
+par(mfrow=c(1,1))
+loans.lm.amt = lm(loans.train$int_rate~loans.train$loan_amnt, data = loans.train)
+summary(loans.lm.amt)
+plot(loans.train$loan_amnt, loans.train$int_rate)
+abline(loans.lm.amt, lwd=5)
+par(mfrow=c(2,2))
+plot(loans.lm.amt)
+sqrt(mean((loans.test$int_rate - predict(loans.lm.amt, loans.test))^2))
+```
+
+# Regressing on employment length
+```{r}
+par(mfrow=c(1,1))
+loans.lm.emp = lm(loans.train$int_rate~loans.train$emp_length, data = loans.train)
+summary(loans.lm.emp)
+plot(loans.train$emp_length, loans.train$int_rate)
+abline(loans.lm.emp, lwd=5)
+par(mfrow=c(2,2))
+plot(loans.lm.emp)
+sqrt(mean((loans.test$int_rate - predict(loans.lm.emp, loans.test))^2))
+```
+# All variables seem important using simple linear regression
+
+# Finding out correlations between possible variables in the data set
+```{r}
+cor(loans$annual_inc, loans$emp_length)
+cor(loans$annual_inc, loans$fico_average)
+```
+
+
+
+################################################################################# 
+# second result: multiple linear regression
+################################################################################# 
+
+# Regressing on all variables 
+```{r}
+loans.lm.all = lm(loans.train$int_rate ~., data = loans.train)
+summary(loans.lm.all)
+sqrt(mean((loans.test$int_rate - predict(loans.lm.all, loans.test))^2))
+```
+# Employment length and bankrupcy predictors are insignificant
+
+# Regressing on significant variables
+```{r}
+loans.lm.all2 = lm(loans.train$int_rate ~ loans.train$loan_amnt+loans.train$annual_inc+
+                     loans.train$fico_average+loans.train$term, data = loans.train)
+summary(loans.lm.all2)
+sqrt(mean((loans.test$int_rate - predict(loans.lm.all2, loans.test))^2))
+```
+# RMSE increases on removing the two insignificant variables discovered above
+
+
+
+################################################################################# 
+# third result: polynomial regression
+################################################################################# 
+
+# Regressing on higher powers of fico average
+```{r}
+loans.lm.all3 = lm(loans.train$int_rate~I(loans.train$fico_average^3), data = loans.train)
+summary(loans.lm.all3)
+sqrt(mean((loans.test$int_rate - predict(loans.lm.all3, loans.test))^2))
+```
+# Worse and Multiple Linear model
+
+# Regressing on higher powers of loan amount
+```{r}
+loans.lm.all4 = lm(loans.train$int_rate~I(loans.train$loan_amnt^3), data = loans.train)
+summary(loans.lm.all4)
+sqrt(mean((loans.test$int_rate - predict(loans.lm.all4, loans.test))^2))
+```
+# Worse and Multiple Linear model
+
+
+
+################################################################################# 
+# fourth result: KNN model
+################################################################################# 
+
+# Running the KNN model on all 5000 data points
+```{r}
+library(kknn)
+loans5000 = rbind(loans.train, loans.test)
+train = data.frame(loans5000$fico_average,loans5000$int_rate)
+test = data.frame(loans5000$fico_average,loans5000$int_rate)
+ind = order(test[,1])
+test =test[ind,]
+
+par(mfrow=c(1,1))
+MSE = NULL
+kk = c(10,50,100,150,200,400,500,1000, 2000, 3000)
+
+for(i in kk){
+  
+  near = kknn(loans5000$int_rate~loans5000$fico_average,train,test,k=i,kernel = "rectangular")
+  aux = mean((test[,2]-near$fitted)^2)
+  MSE = c(MSE,aux)
+  
+  plot(loans5000$fico_average,loans5000$int_rate,main=paste("k=",i),pch=19,cex=0.8,col="darkgray")
+  lines(test[,1],near$fitted,col=2,lwd=2)
+  cat ("Press [enter] to continue")
+  line <- readline()
+}
+
+best_all = which.min(MSE)
+sqrt(MSE[best_all])
+plot(log(1/kk),sqrt(MSE),type="b",xlab="Complexity (log(1/k))",col="blue",ylab="RMSE",lwd=2,cex.lab=1.2)
+text(log(1/kk[best_all]),sqrt(MSE[best_all]),paste("k=",kk[best_all]),col=2,cex=1.2)
+text(log(1/kk[8]),sqrt(MSE[8]),paste("k=",kk[8]),col=2,cex=1.2)
+text(log(1/kk[5]),sqrt(MSE[5]),paste("k=",kk[5]),col=2,cex=1.2)
+text(log(1/kk[2]),sqrt(MSE[2]),paste("k=",kk[2]),col=2,cex=1.2)
+
+near = kknn(loans5000$int_rate~loans5000$fico_average,train,test,k=50,kernel = "rectangular")
+
+for(i in seq(1,505,by=100)){
+  ii = near$C[i,1:10]
+  plot(loans5000$fico_average,loans5000$int_rate,main=paste("k=50"),pch=19,cex=0.8,col="darkgray")
+  lines(test[,1],near$fitted,col=2,lwd=2)
+  abline(v=test[i,1],col=2,lty=2)
+  points(loans5000$fico_average[ii],loans5000$int_rate[ii],pch=19,col="blue")
+  cat ("Press [enter] to continue")
+  line <- readline()
+}
+
+sqrt(MSE[2])
+```
+# KNN model doesn't seem to work very well on this dataset
+
+
+##### Out-of-sample prediction for KNN model
+```{r}
+set.seed(268)
+tr = sample(1:5000,3750) ##pick 3750 random numbers from 1:5000
+train = train[tr,]
+test = test[-tr,]
+
+out_MSE = NULL
+
+for(i in kk){
+  
+  near = kknn(loans5000$int_rate~loans5000$fico_average,train,test,k=i,kernel = "rectangular")
+  aux = mean((test[,2]-near$fitted)^2)
+  
+  out_MSE = c(out_MSE,aux)
+}
+
+best = which.min(out_MSE)
+out_MSE[best]
+
+plot(log(1/kk),sqrt(out_MSE),xlab="Complexity (log(1/k))",ylab="out-of-sample RMSE",col=4,lwd=2,type="l",cex.lab=1.2)
+text(log(1/kk[best]),sqrt(out_MSE[best]),paste("k=",kk[best]),col=2,cex=1.2)
+text(log(1/kk[8]),sqrt(out_MSE[8]),paste("k=",kk[8]),col=2,cex=1.2)
+text(log(1/kk[5]),sqrt(out_MSE[5]),paste("k=",kk[5]),col=2,cex=1.2)
+text(log(1/kk[2]),sqrt(out_MSE[2]),paste("k=",kk[2]),col=2,cex=1.2)
+
+near = kknn(loans5000$int_rate~loans5000$fico_average,train,test,k=50,kernel = "rectangular")
+
+ind = order(test[,1])
+plot(loans5000$fico_average,loans5000$int_rate,main=paste("k=",50),pch=19,cex=0.8,col="darkgray")
+lines(test[ind,1],near$fitted[ind],col=2,lwd=2)
+
+sqrt(out_MSE)
+sqrt(out_MSE[best])
+```
+# KNN model doesn't seem to work very well on this dataset
+
+
+
+################################################################################# 
+# fifth result: Ridge Regression
+################################################################################# 
+
+
+
+################################################################################# 
+# sixth result: LASSO
+################################################################################# 
+
+```{r}
+library(glmnet)
+library(coefplot)
+library(dplyr)
+library(coefplot)
+
+rm(list = ls())
+
+loan <- read.csv("loans.csv")
+loan= sample_n(loan, 5000)
+#take log of int_rate 
+colnames(loan)
+logintrate <- log(loan$ï..int_rate)
+term=as.factor(loan$term)
+loan = cbind(term, scale(loan[,-3]))
+loan=loan[,-2]
+
+#get number of rows in csv file
+n= dim(loan)[1] 
+set.seed(268)
+tr=sample(1:n,3750)
+test=loan[-tr,]
+y.test=logintrate[-tr]
+
+#fit a lasso model 
+set.seed(268)
+Lasso.Fit=glmnet(loan[tr,],logintrate[tr], alpha=1)
+
+#splits viewing pane to view 2 graphs
+set.seed(268)
+par(mfrow=c(1,1))
+#plots lasso
+plot(Lasso.Fit)
+
+#cross validate
+set.seed(268)
+CV.L=cv.glmnet(loan[tr,],logintrate[tr],alpha=1)
+
+#lambda
+set.seed(268)
+LamL=CV.L$lambda.min
+extract.coef(CV.L)
+
+#plot graph
+set.seed(268)
+plot(log(CV.L$lambda),sqrt(CV.L$cvm),main="LASSO CV",xlab="log(lambda)",ylab = "RMSE",col=4,type="b",cex.lab=1.2)
+abline(v=log(LamL),lty=2,col=2,lwd=2)
+
+set.seed(268)
+pred.L=predict(CV.L, s=LamL, newx=test)
+#R.pred = predict(R.fit, s=LamR, newx = test)
+
+set.seed(268)
+coef(CV.L)
+summary(CV.L)
+plot(CV.L)
+
+set.seed(268)
+sqrt(mean((pred.L- y.test)^2))
+```
+# Best model SO FAR
+
+
+################################################################################# 
+# seventh result: regression tree
+# fit a big tree to training set before pruning for optimal alpha parameter
+# compute in-sample training error and out-of-sample test error on the way
+# prune the big tree to optimal alpha then calculate test predictions and plot y vs yhat
+################################################################################# 
+
+```{r}
+library(randomForest)
+library(gbm)
+library(rpart)
+rm(list=ls())
+
+# adjust the data
+loans = read.csv("loans.csv")
+loans$ï..int_rate = log(loans$ï..int_rate)
+colnames(loans)[colnames(loans)=='ï..int_rate'] = 'int_rate'
+term = as.factor(loans$term)
+loans$term = NULL
+loans = cbind(loans, term)
+
+
+# resample our dataset
+set.seed(268)
+nsample=5000 # because nrow = 421095, we take a sample of 5000 for computational time
+train.index=3750
+test.index=1250
+ii = sample(1:nrow(loans), nsample)
+loans.train = loans[ii[1:train.index],]
+loans.test = loans[ii[train.index+1:test.index],]
+
+set.seed(268)
+tree.loans = rpart(int_rate~., method="anova", data=loans.train,
+                   control=rpart.control(minsplit=5, cp=.0007))
+nbig = length(unique(tree.loans$where))
+cat('size of big tree: ', nbig, '\n')
+plotcp(tree.loans)
+
+# fit on train, predict on test for vector of cp
+cpvec = tree.loans$cptable[,"CP"] # vector of cp
+ntree = length(cpvec) # number of cv values = number of trees fit
+iltree = rep(0, ntree) # in-sample loss
+oltree = rep(0, ntree) # out-of-sample loss
+sztree = rep(0, ntree) # size of each tree
+for(i in 1:ntree) 
+{
+  if((i %% 10)==0) cat('tree i: ',i,'\n')
+  temptree = prune(tree.loans,cp=cpvec[i])
+  sztree[i] = length(unique(temptree$where))
+  iltree[i] = sum((loans.train$int_rate-predict(temptree))^2)
+  ofit = predict(temptree,loans.test)
+  oltree[i] = sum((loans.test$int_rate-ofit)^2)
+}
+oltree=sqrt(oltree/nrow(loans.test)); iltree = sqrt(iltree/nrow(loans.train))
+
+# plot RMSE
+rgl = range(c(iltree, oltree))
+plot(range(sztree), rgl, type='n', xlab='tree size', ylab='RMSE')
+points(sztree, iltree, pch=10, col='red')
+points(sztree, oltree, pch=12, col='blue')
+legend("topright", legend=c('in-sample', 'out-of-sample'), lwd=3, col=c('red', 'blue'))
+
+# prune to best CP then plot best tree and plot test data vs fitted values
+set.seed(268)
+alphatree = which.min(oltree)
+tree.best = prune(tree.loans, cp=cpvec[alphatree])
+testpreds = predict(tree.best, loans.test)
+cat('best tree rmse: ', min(oltree), '\n')
+```
+
+```{r}
+nbest = length(unique(tree.best$where))
+cat('size of best tree: ' ,nbest, '\n')
+prp(tree.best)
+```
+
+
+########################################################
+# eighth result: random forests and bagging
+# test for different values of mtry and ntree 
+# compute in-sample and out-of-sample errors with train and test set
+# fit our best model to the training set and create test predictions
+# plot y vs yhat and variable importance
+########################################################
+
+```{r}
+set.seed(268)
+p=ncol(loans.train)-1
+mtryv = c(p,sqrt(p)) # mtry = p for bagging; also use sqrt(p) as part of general practice
+ntreev = c(100,500) 
+parmrf = expand.grid(mtryv,ntreev)
+colnames(parmrf)=c('mtry','ntree')
+nset = nrow(parmrf)
+olrf = rep(0,nset)
+ilrf = rep(0,nset)
+rffitv = vector('list',nset)
+for(i in 1:nset) {
+  cat('doing rf ',i,' out of ',nset,'\n')
+  temprf = randomForest(int_rate~.,data=loans.train, mtry=parmrf[i,1],ntree=parmrf[i,2])
+  ifit = predict(temprf)
+  ofit=predict(temprf,newdata=loans.test)
+  olrf[i] = sum((loans.test$int_rate-ofit)^2)
+  ilrf[i] = sum((loans.train$int_rate-ifit)^2)
+  rffitv[[i]]=temprf
+}
+ilrf = round(sqrt(ilrf/nrow(loans.train)),3); olrf = round(sqrt(olrf/nrow(loans.test)),3)
+
+# plot RMSE
+print(cbind(parmrf, olrf, ilrf))
+
+# fit best model and plot y vs yhat
+iirf = which.min(olrf)
+bestrf = rffitv[[iirf]]
+best.pred = predict(bestrf, newdata=loans.test)
+best.rmse = sqrt(sum((loans.test$int_rate-best.pred)^2)/nrow(loans.test))
+cat('best RF rmse: ', best.rmse, '\n')
+```
+
+```{r}
+
+plot(loans.test$int_rate, best.pred, xlab='test int_rate', ylab='rf pred')
+abline(0,1,col='red',lwd=2)
+
+# plot variable importance
+varImpPlot(bestrf)
+```
+
+
+###########################
+# ninth result: boosting models
+# test for different depths, number of trees, and lambda
+# compute in-sample and out-of-sample RMSE along the way
+# fit the training data to our best tree and create test predictions
+# plot y vs yhat and a few visualizations of variable importance
+###########################
+
+```{r}
+library(gbm)
+set.seed(268)
+depthgrid = c(4,10)
+treegrid = c(1000,5000)
+lamgrid = c(.001,.2)
+parmb = expand.grid(depthgrid,treegrid,lamgrid)
+colnames(parmb) = c('tdepth','ntree','lam')
+print(parmb)
+nset = nrow(parmb)
+olb = rep(0,nset)
+ilb = rep(0,nset)
+bfitv = vector('list',nset)
+for(i in 1:nset) {
+  cat('doing boost ',i,' out of ',nset,'\n')
+  tempboost = gbm(loans.train$int_rate~.,data=loans.train,distribution='gaussian',
+                  interaction.depth=parmb[i,1],n.trees=parmb[i,2],shrinkage=parmb[i,3])
+  ifit = predict(tempboost,n.trees=parmb[i,2])
+  ofit=predict(tempboost,newdata=loans.test,n.trees=parmb[i,2])
+  olb[i] = sum((loans.test$int_rate-ofit)^2)
+  ilb[i] = sum((loans.train$int_rate-ifit)^2)
+  bfitv[[i]]=tempboost
+}
+ilb = round(sqrt(ilb/nrow(loans.train)),3); olb = round(sqrt(olb/nrow(loans.test)),3)
+
+#print RMSEs for each model
+print(cbind(parmb,olb,ilb))
+
+#fit our best model 
+set.seed(268)
+finb = gbm(loans.train$int_rate~.,data=loans.train,distribution='gaussian',
+           interaction.depth=10,n.trees=5000,shrinkage=.001)
+finbpred=predict(finb,newdata=loans.test,n.trees=5000)
+
+#plot y vs yhat for test data and compute rmse on test.
+finbrmse = sqrt(sum((loans.test$int_rate-finbpred)^2)/nrow(loans.test))
+cat('finbrmse: ',finbrmse,'\n')
+```
+
+```{r}
+
+plot(loans.test$int_rate,finbpred,xlab='test int_rate',ylab='boost pred')
+abline(0,1,col='red',lwd=2)
+
+#setup variable importance plot
+p=ncol(loans.train)-1 #want number of variables for later
+vsum=summary(finb) #variable importance plot but hard to read
+row.names(vsum)=NULL #drop varable names from rows
+
+#write variable importance table
+cat('\\begin{verbatim}\n')
+print(vsum)
+cat('\\end{verbatim}\n')
+
+#plot variable importance
+plot(vsum$rel.inf,axes=F,pch=16,col='red')
+axis(1,labels=vsum$var,at=1:p)
+axis(2)
+for(i in 1:p) lines(c(i,i),c(0,vsum$rel.inf[i]),lwd=4,col='blue')
+```
+# Boosting turns out to be the best model for predicting interest rate on this dataset
